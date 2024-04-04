@@ -58,9 +58,26 @@ def rectCountour(countours):
                 rectCon.append(i)
     rectCon= sorted(rectCon,key=cv2.contourArea,reverse=True)
     return rectCon 
-            
+def getCornerPoints(cont):
+    peri=cv2.arcLength(cont,True)   
+    approx=cv2.approxPolyDP(cont,0.02*peri,True)   
+    return approx 
         
-        
+def reorder(myPoints):
+    myPoints=myPoints.reshape((4,2))
+    myPointsNew=np.zeros((4,1,2),np.int32)
+    add=myPoints.sum(1)
+    print(myPoints)
+    print(add)
+    myPointsNew[0]= myPoints[np.argmin(add)]
+    myPointsNew[3]= myPoints[np.argmax(add)]
+    diff = np.diff(myPoints,axis=1)
+    myPointsNew[1]=myPoints[np.argmin(diff)]
+    myPointsNew[2]=myPoints[np.argmax(diff)]
+    #print(diff)
+    return myPointsNew
+    
+    
         
 def getContours(img):
     imgContour = img.copy()  # Initialize imgContour within the function
@@ -97,11 +114,14 @@ def getContours(img):
 
 # xử lý ảnh phiếu trắc nghiệm
 path = 'phieu.JPG'
+widthImg=600
+heightImg=900 
 img = cv2.imread(path)
 imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 imgBlur = cv2.GaussianBlur(imgGray, (7, 7), 1)
 imgCanny = cv2.Canny(imgBlur, 50, 50)
 imgContour = img.copy()
+imgBiggestContour = img.copy()
 
 #Tìm viền phiếu chấm 
 countours, hierarchy= cv2.findContours(imgCanny,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
@@ -109,13 +129,37 @@ cv2.drawContours(imgContour,countours,-1,(0,255,0),10)
 
 #Tìm hình chữ nhật 
 rectCon=rectCountour(countours)
-biggestContour= rectCon[0]
-print("Khung lớn nhất:",len(biggestContour))
+biggestContour=getCornerPoints(rectCon[0])
+print("Khung lớn nhất:",biggestContour.shape)
+gradePoints=getCornerPoints(rectCon[1])
+#print("Khung lớn nhất:",len(biggestContour))
+
+if biggestContour.size !=0 and gradePoints.size !=0:
+    cv2.drawContours(imgBiggestContour,biggestContour,-1,(0,255,0),30)
+    cv2.drawContours(imgBiggestContour,gradePoints,-1,(255,0,0),30)
+    
+    biggestContour=reorder(biggestContour)
+    gradePoints=reorder(gradePoints)
+    
+    pt1=np.float32(biggestContour)
+    pt2=np.float32([[0,0],[widthImg,0],[0,heightImg],[widthImg,heightImg]])
+    matrix=cv2.getPerspectiveTransform(pt1,pt2)
+    imgWarpColored=cv2.warpPerspective(img,matrix,(widthImg,heightImg))
+    
+    ptG1=np.float32(gradePoints)
+    ptG2=np.float32([[0,0],[325,0],[0,150],[325,150]])
+    matrixG=cv2.getPerspectiveTransform(ptG1,ptG2)
+    imgGradeDisplay=cv2.warpPerspective(img,matrixG,(325,150))
+    #cv2.imshow("Diem",imgGradeDisplay)
+    
+    imgWarpGray=cv2.cvtColor(imgWarpColored,cv2.COLOR_BGR2GRAY)
+    imgThresh=cv2.threshold(imgWarpGray,170,255,cv2.THRESH_BINARY_INV)[1]
+
 
 #In phiếu kết quả
 imgBlank = np.zeros_like(img)
 imgStack = stackImages(0.8, ([img, imgGray, imgBlur,imgCanny],
-                             [imgContour, imgBlank,imgBlank,imgBlank])) 
+                             [imgContour,imgBiggestContour,imgWarpColored,imgThresh])) 
 
 cv2.imshow("Phieu cham THPT Tinh Bien", imgStack)
 cv2.waitKey(0)
